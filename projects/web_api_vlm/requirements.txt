@@ -1,0 +1,12 @@
+# MinerU VLM Web API Dependencies
+
+# MinerU with full VLM support
+mineru[all]
+
+# FastAPI and web server
+fastapi>=0.104.0
+uvicorn[standard]>=0.24.0
+python-multipart>=0.0.6
+
+# Additional utilities
+python-dotenv>=1.0.0 
