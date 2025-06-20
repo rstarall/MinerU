@@ -20,16 +20,21 @@ RUN apt-get update && \
         libgomp1 \
         git \
         wget \
-        curl && \
+        curl \
+        python3-venv && \
     apt-get clean && \
     rm -rf /var/lib/apt/lists/*
 
-# Install Python dependencies
+# Create and activate virtual environment
+RUN python3 -m venv /app/venv
+ENV PATH="/app/venv/bin:$PATH"
+
+# Install Python dependencies in virtual environment
 COPY requirements.txt .
-RUN python3 -m pip install --no-cache-dir -r requirements.txt
+RUN pip install --no-cache-dir -r requirements.txt
 
 # Download models (this will create the configuration automatically)
-RUN python3 -c "import os; os.system('mineru-models-download -s modelscope -m all'); print('Models downloaded successfully')"
+RUN python -c "import os; os.system('mineru-models-download -s modelscope -m all'); print('Models downloaded successfully')"
 
 # Set model source to local
 ENV MINERU_MODEL_SOURCE=local
