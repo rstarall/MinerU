@@ -48,7 +48,7 @@ RUN pip install --no-cache-dir -r requirements.txt
 # 开发环境使用自动下载模式，不在镜像中包含模型
 ENV MINERU_MODEL_SOURCE=auto
 
-# 复制模型下载脚本和启动脚本
+# 复制模型下载脚本和启动脚本，其他文件通过 volume 挂载
 COPY model_download.py /app/model_download.py
 COPY entrypoint.sh /app/entrypoint.sh
 RUN chmod +x /app/entrypoint.sh

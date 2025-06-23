@@ -1,0 +1,99 @@
+version: '3.8'
+
+services:
+  mineru-vlm-api:
+    # 开发环境从源码构建
+    build:
+      context: .
+      dockerfile: Dockerfile.dev
+      args:
+        PIP_INDEX_URL: https://pypi.tuna.tsinghua.edu.cn/simple
+        PIP_TRUSTED_HOST: pypi.tuna.tsinghua.edu.cn
+    container_name: mineru-vlm-api-dev
+    ports:
+      - "8000:8000"
+    volumes:
+      # 开发环境支持代码热更新
+      - ./app.py:/app/app.py:ro
+      - ./entrypoint.sh:/app/entrypoint.sh:ro
+      - ./mineru.json:/root/mineru.json:ro
+      # 数据目录
+      - ./output:/app/output
+      - ./logs:/app/logs
+      - ./temp:/app/temp
+      - ./models_cache:/root/.cache
+      # 开发工具目录 (可选)
+      - ./test_api.py:/app/test_api.py:ro
+    environment:
+      - MINERU_MODEL_SOURCE=modelscope
+      - LOG_LEVEL=debug
+      - PORT=8000
+      - HOST=0.0.0.0
+      # 开发环境配置
+      - PYTHONPATH=/app
+      - FLASK_ENV=development
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    restart: "no"  # 开发环境不自动重启
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 60s
+      timeout: 15s
+      retries: 5
+      start_period: 180s
+    networks:
+      - mineru-network
+    # 开发环境交互模式
+    stdin_open: true
+    tty: true
+
+  # SGLang 服务器 (开发环境)
+  sglang-server:
+    image: lmsysorg/sglang:v0.4.7-cu124
+    container_name: sglang-server-dev
+    ports:
+      - "30000:30000"
+    environment:
+      - CUDA_VISIBLE_DEVICES=1  # 使用不同的 GPU
+      - MODEL_PATH=opendatalab/MinerU2.0-2505-0.9B
+    command: >
+      python -m sglang.launch_server
+      --model-path ${MODEL_PATH:-opendatalab/MinerU2.0-2505-0.9B}
+      --host 0.0.0.0
+      --port 30000
+      --tp-size 1
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+    restart: "no"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:30000/health"]
+      interval: 60s
+      timeout: 15s
+      retries: 5
+      start_period: 120s
+    networks:
+      - mineru-network
+    profiles:
+      - sglang
+
+networks:
+  mineru-network:
+    driver: bridge
+
+# 开发环境使用说明:
+# 1. 启动开发服务: docker-compose -f docker-compose.dev.yml up --build
+# 2. 后台运行: docker-compose -f docker-compose.dev.yml up --build -d
+# 3. 查看日志: docker-compose -f docker-compose.dev.yml logs -f mineru-vlm-api
+# 4. 重启服务: docker-compose -f docker-compose.dev.yml restart mineru-vlm-api
+# 5. 停止服务: docker-compose -f docker-compose.dev.yml down
+# 6. 进入容器: docker-compose -f docker-compose.dev.yml exec mineru-vlm-api bash 

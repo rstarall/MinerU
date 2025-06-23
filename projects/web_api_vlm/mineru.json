@@ -22,8 +22,8 @@
         }
     },
     "models-dir": {
-        "pipeline": "/opt/models/pipeline",
-        "vlm": "/opt/models/vlm"
+        "pipeline": "/root/.cache",
+        "vlm": "/root/.cache"
     },
     "config_version": "1.3.0"
 } 

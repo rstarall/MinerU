@@ -14,7 +14,28 @@
 | CPU | 16 核心 | 32+ 核心 |
 | 操作系统 | Ubuntu 20.04+ | Ubuntu 22.04 LTS |
 
-### 软件依赖
+### 🔧 必需软件依赖
+
+#### 1. NVIDIA 驱动程序
+
+```bash
+# 检查是否已安装
+nvidia-smi
+
+# Ubuntu 安装 NVIDIA 驱动
+sudo apt update
+sudo apt install nvidia-driver-535
+sudo reboot
+
+# CentOS/RHEL 安装
+sudo dnf install nvidia-driver
+sudo reboot
+
+# 验证安装
+nvidia-smi
+```
+
+#### 2. Docker 和 Docker Compose
 
 ```bash
 # 安装 Docker
@@ -25,133 +46,271 @@ sudo sh get-docker.sh
 sudo curl -L "https://github.com/docker/compose/releases/latest/download/docker-compose-$(uname -s)-$(uname -m)" -o /usr/local/bin/docker-compose
 sudo chmod +x /usr/local/bin/docker-compose
 
-# 安装 NVIDIA Container Toolkit
-distribution=$(. /etc/os-release;echo $ID$VERSION_ID)
-curl -s -L https://nvidia.github.io/nvidia-docker/gpgkey | sudo apt-key add -
-curl -s -L https://nvidia.github.io/nvidia-docker/$distribution/nvidia-docker.list | sudo tee /etc/apt/sources.list.d/nvidia-docker.list
+# 将用户添加到 docker 组
+sudo usermod -aG docker $USER
+newgrp docker
 
-sudo apt-get update && sudo apt-get install -y nvidia-docker2
+# 验证安装
+docker --version
+docker-compose --version
+```
+
+#### 3. NVIDIA Container Toolkit（**必需**）
+
+**⚠️ 重要：这是在 Docker 容器中使用 NVIDIA GPU 的必需组件！**
+
+##### Ubuntu/Debian 安装
+
+```bash
+# 添加 NVIDIA GPG 密钥和仓库
+distribution=$(. /etc/os-release;echo $ID$VERSION_ID) \
+   && curl -fsSL https://nvidia.github.io/libnvidia-container/gpgkey | sudo gpg --dearmor -o /usr/share/keyrings/nvidia-container-toolkit-keyring.gpg \
+   && curl -s -L https://nvidia.github.io/libnvidia-container/$distribution/libnvidia-container.list | \
+      sed 's#deb https://#deb [signed-by=/usr/share/keyrings/nvidia-container-toolkit-keyring.gpg] https://#g' | \
+      sudo tee /etc/apt/sources.list.d/nvidia-container-toolkit.list
+
+# 更新包列表并安装
+sudo apt-get update
+sudo apt-get install -y nvidia-container-toolkit
+
+# 配置 Docker 运行时
+sudo nvidia-ctk runtime configure --runtime=docker
 sudo systemctl restart docker
+```
+
+##### CentOS/RHEL 安装
+
+```bash
+# 添加 NVIDIA 仓库
+distribution=$(. /etc/os-release;echo $ID$VERSION_ID) \
+   && curl -s -L https://nvidia.github.io/libnvidia-container/$distribution/nvidia-container-toolkit.repo | \
+      sudo tee /etc/yum.repos.d/nvidia-container-toolkit.repo
+
+# 安装 nvidia-container-toolkit
+sudo yum install -y nvidia-container-toolkit
+
+# 配置 Docker 运行时
+sudo nvidia-ctk runtime configure --runtime=docker
+sudo systemctl restart docker
+```
+
+##### 验证安装
+
+```bash
+# 测试 GPU 访问
+docker run --rm --gpus all nvidia/cuda:12.4-base-ubuntu22.04 nvidia-smi
+
+# 如果看到 GPU 信息输出，说明安装成功
 ```
 
 ## 🚀 部署方式
 
-### 方式一：快速单容器部署
+### 生产环境部署
 
-适用于快速测试和开发环境。
+#### 方式一：使用预构建镜像（推荐）
 
 ```bash
 # 1. 克隆项目
 git clone https://github.com/opendatalab/MinerU.git
 cd MinerU/projects/web_api_vlm
 
-# 2. 构建镜像
-docker build -t mineru-vlm-api:latest .
+# 2. 创建必要目录
+mkdir -p output logs temp models_cache
 
-# 3. 启动服务
-docker run --rm -it \
-  --name mineru-vlm-api \
-  --gpus all \
-  --shm-size 32g \
-  --ipc=host \
-  -p 8000:8000 \
-  -v $(pwd)/output:/app/output \
-  -e MINERU_MODEL_SOURCE=local \
-  mineru-vlm-api:latest
-```
+# 3. 启动生产服务
+docker-compose -f docker-compose.prod.yml up -d
 
-### 方式二：Docker Compose 部署（推荐）
+# 4. 查看服务状态
+docker-compose -f docker-compose.prod.yml ps
 
-适用于生产环境和持久化服务。
+# 5. 查看启动日志
+docker-compose -f docker-compose.prod.yml logs -f mineru-vlm-api
 
-```bash
-# 1. 准备配置文件
-cp .env.example .env
-# 编辑 .env 文件根据需要调整配置
-
-# 2. 启动服务
-docker-compose up -d
-
-# 3. 查看日志
-docker-compose logs -f mineru-vlm-api
-
-# 4. 停止服务
-docker-compose down
-```
-
-### 方式三：分布式部署
-
-适用于高性能和高可用性需求。
-
-```bash
-# 1. 启动 SGLang 服务器
-docker-compose --profile sglang up -d sglang-server
-
-# 2. 等待 SGLang 服务器启动完成
-docker-compose logs -f sglang-server
-
-# 3. 启动 API 服务
-docker-compose up -d mineru-vlm-api
-
-# 4. 验证服务状态
+# 6. 验证服务
 curl http://localhost:8000/health
+```
+
+#### 方式二：从源码构建
+
+```bash
+# 1. 修改 docker-compose.prod.yml，启用 build 配置
+# 取消注释 build 部分，注释 image 行
+
+# 2. 构建并启动
+docker-compose -f docker-compose.prod.yml up --build -d
+
+# 3. 构建单独的镜像
+docker-compose -f docker-compose.prod.yml build
+
+# 4. 标记镜像
+docker tag web_api_vlm_mineru-vlm-api rstarall/mineru-vlm-api:latest
+```
+
+#### 方式三：包含 SGLang 服务器的分布式部署
+
+```bash
+# 1. 启动完整的分布式服务
+docker-compose -f docker-compose.prod.yml --profile sglang up -d
+
+# 2. 验证 SGLang 服务器
 curl http://localhost:30000/health
+
+# 3. 验证主 API 服务
+curl http://localhost:8000/health
+```
+
+### 开发环境部署
+
+#### 基础开发环境
+
+```bash
+# 1. 克隆项目
+git clone https://github.com/opendatalab/MinerU.git
+cd MinerU/projects/web_api_vlm
+
+# 2. 创建必要目录
+mkdir -p output logs temp models_cache
+
+# 3. 启动开发服务
+docker-compose -f docker-compose.dev.yml up --build
+
+# 4. 或后台运行
+docker-compose -f docker-compose.dev.yml up --build -d
+
+# 5. 查看日志
+docker-compose -f docker-compose.dev.yml logs -f mineru-vlm-api
+```
+
+#### 开发环境高级操作
+
+```bash
+# 重启服务（代码修改后）
+docker-compose -f docker-compose.dev.yml restart mineru-vlm-api
+
+# 进入容器进行调试
+docker-compose -f docker-compose.dev.yml exec mineru-vlm-api bash
+
+# 查看容器内文件
+docker-compose -f docker-compose.dev.yml exec mineru-vlm-api ls -la /app
+
+# 查看实时日志
+docker-compose -f docker-compose.dev.yml logs -f --tail=100 mineru-vlm-api
+
+# 停止服务
+docker-compose -f docker-compose.dev.yml down
+```
+
+### CPU 模式部署（无 GPU 环境）
+
+对于没有 NVIDIA GPU 的环境，可以修改配置文件：
+
+```bash
+# 创建 CPU 模式的 docker-compose 文件
+cp docker-compose.dev.yml docker-compose.cpu.yml
+
+# 编辑文件，删除或注释 GPU 相关配置：
+# deploy:
+#   resources:
+#     reservations:
+#       devices:
+#         - driver: nvidia
+#           count: all
+#           capabilities: [gpu]
+
+# 启动 CPU 模式
+CUDA_VISIBLE_DEVICES="" docker-compose -f docker-compose.cpu.yml up -d
 ```
 
 ## 🔧 配置优化
 
-### 环境变量配置
+### 生产环境配置优化
+
+#### 1. 环境变量配置
 
 创建 `.env` 文件：
 
 ```bash
+# GPU 配置
+CUDA_VISIBLE_DEVICES=0,1
+NVIDIA_VISIBLE_DEVICES=all
+
 # 模型源配置
 MINERU_MODEL_SOURCE=local
+MINERU_DOWNLOAD_SOURCE=modelscope
 
 # 服务配置
 PORT=8000
+HOST=0.0.0.0
 LOG_LEVEL=info
-
-# GPU 配置
-CUDA_VISIBLE_DEVICES=0
 
 # 性能优化
 OMP_NUM_THREADS=16
 PYTORCH_CUDA_ALLOC_CONF=max_split_size_mb:512
+
+# 网络配置（中国用户）
+PIP_INDEX_URL=https://pypi.tuna.tsinghua.edu.cn/simple
+PIP_TRUSTED_HOST=pypi.tuna.tsinghua.edu.cn
 ```
 
-### Docker 资源限制
+#### 2. Docker 资源限制
 
 ```yaml
-# docker-compose.yml 资源配置示例
-services:
-  mineru-vlm-api:
-    deploy:
-      resources:
-        limits:
-          memory: 64G
-          cpus: '32'
-        reservations:
-          memory: 32G
-          cpus: '16'
-          devices:
-            - driver: nvidia
-              count: 1
-              capabilities: [gpu]
+# 在 docker-compose.prod.yml 中调整资源配置
+deploy:
+  resources:
+    limits:
+      memory: 64G
+      cpus: '32'
+    reservations:
+      memory: 32G
+      cpus: '16'
+      devices:
+        - driver: nvidia
+          count: all
+          capabilities: [gpu]
 ```
 
-### 存储配置
+#### 3. 存储配置
 
 ```bash
-# 创建持久化存储目录
-mkdir -p /data/mineru/{output,logs,models,temp}
+# 创建专用存储目录
+sudo mkdir -p /data/mineru/{output,logs,models,temp}
+sudo chown -R $USER:$USER /data/mineru
 
-# 更新 docker-compose.yml 中的挂载路径
+# 更新 docker-compose.prod.yml 中的挂载路径
 volumes:
   - /data/mineru/output:/app/output
   - /data/mineru/logs:/app/logs
-  - /data/mineru/models:/opt/models
+  - /data/mineru/models:/root/.cache
   - /data/mineru/temp:/app/temp
+```
+
+### 开发环境配置优化
+
+#### 1. 代码热更新配置
+
+开发环境已配置代码热更新：
+
+```yaml
+volumes:
+  # 代码文件挂载，支持热更新
+  - ./app.py:/app/app.py:ro
+  - ./entrypoint.sh:/app/entrypoint.sh:ro
+  - ./mineru.json:/root/mineru.json:ro
+  - ./test_api.py:/app/test_api.py:ro
+```
+
+#### 2. 调试配置
+
+```yaml
+environment:
+  - LOG_LEVEL=debug
+  - PYTHONPATH=/app
+  - FLASK_ENV=development
+
+# 交互模式
+stdin_open: true
+tty: true
 ```
 
 ## 🔍 验证部署
@@ -159,262 +318,283 @@ volumes:
 ### 健康检查
 
 ```bash
-# 检查服务状态
+# 基础健康检查
 curl http://localhost:8000/health
 
-# 检查 API 信息
-curl http://localhost:8000/
+# 详细系统信息
+curl http://localhost:8000/system/info
 
-# 检查 SGLang 服务器（如果启用）
-curl http://localhost:30000/health
+# API 文档
+# 浏览器访问：http://localhost:8000/docs
 ```
 
 ### 功能测试
 
 ```bash
-# 运行测试脚本
-python test_api.py --url http://localhost:8000
+# 运行 API 测试脚本
+python test_api.py
 
-# 测试文件上传（需要准备测试 PDF 文件）
-curl -X POST "http://localhost:8000/vlm_parse" \
-  -F "file=@test.pdf" \
-  -F "backend=vlm-transformers"
+# 或在容器内运行
+docker-compose -f docker-compose.dev.yml exec mineru-vlm-api python test_api.py
 ```
 
-## 📊 性能调优
-
-### GPU 优化
+### 性能测试
 
 ```bash
-# 查看 GPU 状态
-nvidia-smi
+# 监控 GPU 使用
+watch -n 1 nvidia-smi
 
-# 设置 GPU 性能模式
-sudo nvidia-smi -pm 1
-
-# 设置 GPU 频率
-sudo nvidia-smi -ac 1215,1410
-```
-
-### 内存优化
-
-```bash
-# 检查内存使用
-free -h
+# 监控容器资源使用
 docker stats
 
-# 设置 swap（如果需要）
-sudo fallocate -l 32G /swapfile
-sudo chmod 600 /swapfile
-sudo mkswap /swapfile
-sudo swapon /swapfile
+# 监控服务日志
+docker-compose -f docker-compose.prod.yml logs -f mineru-vlm-api
 ```
 
-### 网络优化
+## 🔧 监控和维护
+
+### 日志管理
 
 ```bash
-# 如果需要外网访问，配置防火墙
-sudo ufw allow 8000/tcp
-sudo ufw allow 30000/tcp  # SGLang 服务器端口
+# 查看所有日志
+docker-compose -f docker-compose.prod.yml logs
 
-# 配置反向代理（Nginx 示例）
-sudo apt-get install nginx
+# 查看特定服务日志
+docker-compose -f docker-compose.prod.yml logs mineru-vlm-api
 
-# /etc/nginx/sites-available/mineru
-server {
-    listen 80;
-    server_name your-domain.com;
-    
-    location / {
-        proxy_pass http://localhost:8000;
-        proxy_set_header Host $host;
-        proxy_set_header X-Real-IP $remote_addr;
-        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto $scheme;
-        client_max_body_size 100M;
-    }
-}
+# 实时查看日志
+docker-compose -f docker-compose.prod.yml logs -f --tail=100
+
+# 日志轮转配置（添加到 docker-compose.yml）
+logging:
+  driver: "json-file"
+  options:
+    max-size: "100m"
+    max-file: "5"
 ```
 
-## 🛡️ 安全配置
-
-### 网络安全
+### 备份和恢复
 
 ```bash
-# 限制容器网络访问
-docker-compose.yml:
-  networks:
-    mineru-network:
-      driver: bridge
-      ipam:
-        config:
-          - subnet: 172.20.0.0/16
-```
-
-### 文件权限
-
-```bash
-# 设置适当的文件权限
-sudo chown -R 1000:1000 /data/mineru
-sudo chmod -R 755 /data/mineru
-```
-
-### API 安全
-
-在生产环境中，建议添加认证和限流：
-
-```python
-# 在 app.py 中添加认证中间件
-from fastapi.security import HTTPBearer
-from fastapi.middleware.cors import CORSMiddleware
-from slowapi import Limiter, _rate_limit_exceeded_handler
-from slowapi.util import get_remote_address
-
-# 添加限流
-limiter = Limiter(key_func=get_remote_address)
-app.state.limiter = limiter
-app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
-
-# 添加 CORS
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],  # 生产环境中应限制具体域名
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
-```
-
-## 📈 监控和日志
-
-### 日志配置
-
-```bash
-# 配置日志轮转
-# /etc/logrotate.d/mineru
-/data/mineru/logs/*.log {
-    daily
-    missingok
-    rotate 7
-    compress
-    delaycompress
-    notifempty
-    create 644 root root
-}
-```
-
-### 监控配置
-
-```yaml
-# docker-compose.yml 添加监控服务
-  prometheus:
-    image: prom/prometheus
-    ports:
-      - "9090:9090"
-    volumes:
-      - ./prometheus.yml:/etc/prometheus/prometheus.yml
-
-  grafana:
-    image: grafana/grafana
-    ports:
-      - "3000:3000"
-    environment:
-      - GF_SECURITY_ADMIN_PASSWORD=admin
-```
-
-## 🔄 备份和恢复
-
-### 数据备份
-
-```bash
-# 备份脚本
-#!/bin/bash
-BACKUP_DIR="/backup/mineru/$(date +%Y%m%d)"
-mkdir -p $BACKUP_DIR
-
-# 备份配置文件
-cp /data/mineru/mineru.json $BACKUP_DIR/
-cp .env $BACKUP_DIR/
-cp docker-compose.yml $BACKUP_DIR/
-
-# 备份输出数据
-tar -czf $BACKUP_DIR/output.tar.gz /data/mineru/output/
-
-# 备份日志
-tar -czf $BACKUP_DIR/logs.tar.gz /data/mineru/logs/
-```
-
-### 恢复流程
-
-```bash
-# 恢复配置
-cp $BACKUP_DIR/*.json /data/mineru/
-cp $BACKUP_DIR/.env ./
-cp $BACKUP_DIR/docker-compose.yml ./
+# 备份配置和数据
+tar -czf mineru-backup-$(date +%Y%m%d).tar.gz \
+  mineru.json output/ logs/ models_cache/
 
 # 恢复数据
-tar -xzf $BACKUP_DIR/output.tar.gz -C /
-tar -xzf $BACKUP_DIR/logs.tar.gz -C /
+tar -xzf mineru-backup-20240101.tar.gz
+```
 
-# 重启服务
-docker-compose down
-docker-compose up -d
+### 更新部署
+
+```bash
+# 生产环境更新
+docker-compose -f docker-compose.prod.yml pull
+docker-compose -f docker-compose.prod.yml up -d
+
+# 开发环境更新
+docker-compose -f docker-compose.dev.yml build --no-cache
+docker-compose -f docker-compose.dev.yml up -d
 ```
 
 ## 🚨 故障排除
 
-### 常见问题
+### 常见问题及解决方案
 
-1. **容器启动失败**
+#### 1. GPU 相关问题
+
+```bash
+# 检查 NVIDIA 驱动
+nvidia-smi
+
+# 检查 Docker GPU 支持
+docker run --rm --gpus all nvidia/cuda:12.4-base-ubuntu22.04 nvidia-smi
+
+# 检查容器内 GPU 访问
+docker-compose -f docker-compose.dev.yml exec mineru-vlm-api nvidia-smi
+```
+
+#### 2. 模型下载问题
+
+```bash
+# 检查网络连接
+docker-compose -f docker-compose.dev.yml exec mineru-vlm-api curl -I https://www.modelscope.cn
+
+# 手动下载模型
+docker-compose -f docker-compose.dev.yml exec mineru-vlm-api \
+  python -c "import os; os.system('mineru-models-download -s modelscope -m all')"
+
+# 查看模型下载日志
+docker-compose -f docker-compose.dev.yml logs | grep -i download
+```
+
+#### 3. 内存和存储问题
+
+```bash
+# 检查磁盘空间
+df -h
+
+# 检查 Docker 镜像占用
+docker system df
+
+# 清理不用的镜像和容器
+docker system prune -f
+
+# 检查容器内存使用
+docker stats
+```
+
+#### 4. 网络连接问题
+
+```bash
+# 检查端口占用
+netstat -tulpn | grep :8000
+
+# 检查防火墙设置
+sudo ufw status
+
+# 测试内部网络连接
+docker-compose -f docker-compose.dev.yml exec mineru-vlm-api curl localhost:8000/health
+```
+
+### 调试模式
+
+#### 开发环境调试
+
+```bash
+# 启用详细日志
+docker-compose -f docker-compose.dev.yml up --build
+
+# 进入容器调试
+docker-compose -f docker-compose.dev.yml exec mineru-vlm-api bash
+
+# 手动启动服务进行调试
+docker-compose -f docker-compose.dev.yml exec mineru-vlm-api python app.py
+```
+
+#### 生产环境调试
+
+```bash
+# 临时切换到调试模式
+docker-compose -f docker-compose.prod.yml exec mineru-vlm-api-prod bash
+
+# 查看环境变量
+docker-compose -f docker-compose.prod.yml exec mineru-vlm-api-prod env
+
+# 检查配置文件
+docker-compose -f docker-compose.prod.yml exec mineru-vlm-api-prod cat /root/mineru.json
+```
+
+## 📈 性能优化建议
+
+### 硬件优化
+
+1. **GPU 优化**
+   - 使用最新的 NVIDIA GPU（RTX 4090, A100, H100）
+   - 确保足够的显存（24GB+）
+   - 考虑多 GPU 并行处理
+
+2. **内存优化**
+   - 至少 32GB RAM，推荐 64GB+
+   - 使用高速内存（DDR4-3200+）
+
+3. **存储优化**
+   - 使用 NVMe SSD
+   - 将模型缓存放在高速存储上
+   - 考虑使用网络存储（NFS, S3）
+
+### 软件优化
+
+1. **Docker 优化**
    ```bash
-   # 检查 Docker 日志
-   docker logs mineru-vlm-api
+   # 增加共享内存
+   --shm-size 32g
    
-   # 检查 GPU 访问
-   docker run --rm --gpus all nvidia/cuda:11.8-base nvidia-smi
+   # 优化 IPC 设置
+   --ipc=host
+   
+   # 网络优化
+   --network host  # 仅在需要时使用
    ```
 
-2. **模型下载失败**
+2. **环境变量优化**
    ```bash
-   # 手动下载模型
-   docker exec -it mineru-vlm-api bash
-   mineru-models-download -s modelscope -m all
+   # CUDA 优化
+   export CUDA_VISIBLE_DEVICES=0,1
+   export PYTORCH_CUDA_ALLOC_CONF=max_split_size_mb:512
+   
+   # 并行处理优化
+   export OMP_NUM_THREADS=16
+   export MKL_NUM_THREADS=16
    ```
 
-3. **内存不足**
+3. **模型优化**
+   - 使用量化模型减少显存占用
+   - 考虑模型蒸馏
+   - 使用模型并行处理
+
+## 🔒 安全配置
+
+### 生产环境安全
+
+1. **网络安全**
    ```bash
-   # 增加 swap
-   sudo swapon --show
-   sudo fallocate -l 32G /swapfile
-   sudo swapon /swapfile
+   # 使用防火墙限制访问
+   sudo ufw allow from 192.168.1.0/24 to any port 8000
+   
+   # 配置反向代理（Nginx）
+   # 启用 HTTPS
+   # 配置速率限制
    ```
 
-4. **GPU 内存不足**
+2. **容器安全**
+   ```yaml
+   # 使用非 root 用户
+   user: "1000:1000"
+   
+   # 只读文件系统
+   read_only: true
+   
+   # 安全选项
+   security_opt:
+     - no-new-privileges:true
+   ```
+
+3. **数据安全**
    ```bash
-   # 减少并发请求
-   # 在环境变量中设置
-   export PYTORCH_CUDA_ALLOC_CONF=max_split_size_mb:256
+   # 加密敏感配置
+   # 使用 Docker secrets
+   # 定期备份数据
    ```
 
-### 支持渠道
+## 📞 技术支持
 
-- GitHub Issues: https://github.com/opendatalab/MinerU/issues
-- 官方文档: https://github.com/opendatalab/MinerU
-- 社区讨论: Discord / 微信群
+### 获取帮助
 
-## 📝 部署检查清单
+- **项目文档**: [GitHub](https://github.com/opendatalab/MinerU)
+- **问题报告**: [GitHub Issues](https://github.com/opendatalab/MinerU/issues)
+- **讨论交流**: [GitHub Discussions](https://github.com/opendatalab/MinerU/discussions)
 
-- [ ] 硬件要求确认
-- [ ] 软件依赖安装
-- [ ] 项目代码下载
-- [ ] 环境变量配置
-- [ ] 镜像构建成功
-- [ ] 容器启动正常
-- [ ] 健康检查通过
-- [ ] API 功能测试
-- [ ] 性能基准测试
-- [ ] 监控配置完成
-- [ ] 备份策略制定
-- [ ] 安全配置审查
+### 诊断信息收集
 
-完成以上检查清单后，您的 MinerU VLM Web API 服务就可以投入使用了。 
+出现问题时，请收集以下信息：
+
+```bash
+# 系统信息
+uname -a
+nvidia-smi
+docker --version
+docker-compose --version
+
+# 服务状态
+docker-compose -f docker-compose.prod.yml ps
+docker-compose -f docker-compose.prod.yml logs --tail=100
+
+# 资源使用
+docker stats
+df -h
+free -h
+```
+
+## 📝 更新日志
+
+本文档会随着项目更新而持续更新，请定期查看最新版本。 

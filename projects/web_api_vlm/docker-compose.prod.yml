@@ -1,26 +1,21 @@
 version: '3.8'
 
-# 默认 docker-compose.yml - 兼容性配置
-# 推荐使用明确的环境配置：
-# - 生产环境: docker-compose -f docker-compose.prod.yml up -d
-# - 开发环境: docker-compose -f docker-compose.dev.yml up --build
-
 services:
   mineru-vlm-api:
-    # 默认使用生产环境镜像
+    # 生产环境使用构建的镜像
     image: rstarall/mineru-vlm-api:latest
-    # 如需从源码构建，取消注释下面的 build 配置并注释上面的 image 行
+    # 如需从源码构建，取消注释下面的 build 配置
     # build:
     #   context: .
     #   dockerfile: Dockerfile.prod
     #   args:
     #     PIP_INDEX_URL: https://pypi.tuna.tsinghua.edu.cn/simple
     #     PIP_TRUSTED_HOST: pypi.tuna.tsinghua.edu.cn
-    container_name: mineru-vlm-api
+    container_name: mineru-vlm-api-prod
     ports:
       - "8000:8000"
     volumes:
-      # 生产环境基础挂载
+      # 生产环境只挂载数据和配置目录
       - ./output:/app/output
       - ./logs:/app/logs
       - ./temp:/app/temp
@@ -31,9 +26,17 @@ services:
       - LOG_LEVEL=info
       - PORT=8000
       - HOST=0.0.0.0
+      # 生产环境优化
+      - OMP_NUM_THREADS=16
+      - PYTORCH_CUDA_ALLOC_CONF=max_split_size_mb:512
     deploy:
       resources:
+        limits:
+          memory: 64G
+          cpus: '32'
         reservations:
+          memory: 32G
+          cpus: '16'
           devices:
             - driver: nvidia
               count: all
@@ -48,10 +51,10 @@ services:
     networks:
       - mineru-network
 
-  # SGLang 服务器 (可选)
+  # SGLang 服务器 (可选，用于 sglang-client 后端)
   sglang-server:
     image: lmsysorg/sglang:v0.4.7-cu124
-    container_name: sglang-server
+    container_name: sglang-server-prod
     ports:
       - "30000:30000"
     environment:
@@ -87,7 +90,7 @@ networks:
     driver: bridge
 
 # 使用说明:
-# 1. 默认启动: docker-compose up -d
-# 2. 包含 SGLang: docker-compose --profile sglang up -d
-# 3. 生产环境(推荐): docker-compose -f docker-compose.prod.yml up -d
-# 4. 开发环境(推荐): docker-compose -f docker-compose.dev.yml up --build 
+# 1. 生产环境部署: docker-compose -f docker-compose.prod.yml up -d
+# 2. 包含 SGLang 服务: docker-compose -f docker-compose.prod.yml --profile sglang up -d
+# 3. 查看日志: docker-compose -f docker-compose.prod.yml logs -f
+# 4. 停止服务: docker-compose -f docker-compose.prod.yml down 

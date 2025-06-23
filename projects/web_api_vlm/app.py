@@ -18,6 +18,7 @@ from mineru.backend.vlm.vlm_middle_json_mkcontent import union_make as vlm_union
 from mineru.cli.common import convert_pdf_bytes_to_bytes_by_pypdfium2, prepare_env
 from mineru.data.data_reader_writer import FileBasedDataWriter
 from mineru.utils.enum_class import MakeMode
+from mineru.utils.pdf_image_tools import images_bytes_to_pdf_bytes
 
 app = FastAPI(
     title="MinerU VLM Web API",
@@ -125,6 +126,10 @@ def process_vlm_file(
     # 准备输出目录
     local_image_dir, local_md_dir = prepare_env(output_dir, file_name, "vlm")
     image_writer = FileBasedDataWriter(local_image_dir)
+    
+    # 如果是图像文件，需要先转换为PDF格式
+    if file_extension in image_extensions:
+        file_bytes = images_bytes_to_pdf_bytes(file_bytes)
     
     # 处理页面范围
     if file_extension in pdf_extensions:

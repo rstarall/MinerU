@@ -10,105 +10,165 @@
 - **批量处理**：支持一次处理多个文件
 - **丰富的输出格式**：Markdown、JSON、图像等
 - **容器化部署**：基于 SGLang 的 Docker 镜像
+- **开发/生产环境分离**：针对不同使用场景优化
 
 ## 📋 系统要求
 
 ### 硬件要求
-- **GPU**: NVIDIA RTX 4090 或更高性能的 GPU
+- **GPU**: NVIDIA RTX 4090 或更高性能的 GPU（**必需**）
 - **显存**: 至少 24GB（推荐 32GB+）
 - **内存**: 至少 32GB RAM
 - **存储**: 至少 50GB 可用空间
 
 ### 软件要求
-- Docker 和 Docker Compose
-- NVIDIA Container Toolkit
-- CUDA 12.4+
+- **Docker** 和 **Docker Compose**
+- **NVIDIA Container Toolkit**（**必需** - 用于 Docker 访问 GPU）
+- **CUDA 12.4+**
+- **NVIDIA 驱动** 535.x 或更高版本
 
-## 🛠️ 安装部署
+## 🛠️ 环境准备
 
-### 方式一：Docker 构建（推荐）
+详细的环境准备步骤请参考 [DEPLOYMENT.md](./DEPLOYMENT.md)
 
-1. **克隆项目**
+## 🚀 快速开始
+
+### 生产环境部署
+
+生产环境使用预构建的镜像，模型已包含在镜像中，开箱即用。
+
 ```bash
+# 1. 克隆项目
 git clone https://github.com/opendatalab/MinerU.git
 cd MinerU/projects/web_api_vlm
+
+# 2. 启动生产服务
+docker-compose -f docker-compose.prod.yml up -d
+
+# 3. 查看服务状态
+docker-compose -f docker-compose.prod.yml ps
+
+# 4. 查看日志
+docker-compose -f docker-compose.prod.yml logs -f mineru-vlm-api
 ```
 
-2. **构建 Docker 镜像**
+### 开发环境部署
+
+开发环境支持代码热更新，模型动态下载，适合代码开发和调试。
+
 ```bash
-# 国内用户（使用代理）
-docker build --build-arg http_proxy=http://127.0.0.1:7890 \
-             --build-arg https_proxy=http://127.0.0.1:7890 \
-             -t mineru-vlm-api:latest .
+# 1. 克隆项目
+git clone https://github.com/opendatalab/MinerU.git
+cd MinerU/projects/web_api_vlm
 
-# 国外用户
-docker build -t mineru-vlm-api:latest .
+# 2. 启动开发服务
+docker-compose -f docker-compose.dev.yml up --build
+
+# 3. 或后台运行
+docker-compose -f docker-compose.dev.yml up --build -d
+
+# 4. 查看日志
+docker-compose -f docker-compose.dev.yml logs -f mineru-vlm-api
+
+# 5. 进入容器调试
+docker-compose -f docker-compose.dev.yml exec mineru-vlm-api bash
 ```
 
-3. **启动服务**
+## 📁 项目结构
+
+```
+projects/web_api_vlm/
+├── README.md                    # 项目说明文档
+├── DEPLOYMENT.md               # 详细部署指南
+├── app.py                      # 主应用程序
+├── entrypoint.sh              # 容器启动脚本
+├── requirements.txt           # Python 依赖
+├── mineru.json               # 配置文件
+├── test_api.py               # API 测试脚本
+├── Dockerfile.prod           # 生产环境 Dockerfile
+├── Dockerfile.dev            # 开发环境 Dockerfile
+├── docker-compose.prod.yml   # 生产环境 Docker Compose
+├── docker-compose.dev.yml    # 开发环境 Docker Compose
+├── .dockerignore             # Docker 忽略文件
+├── output/                   # 输出文件目录
+├── logs/                     # 日志文件目录
+├── temp/                     # 临时文件目录
+└── models_cache/             # 模型缓存目录
+```
+
+## 🔧 环境差异说明
+
+### 生产环境 (docker-compose.prod.yml)
+
+**特点：**
+- 使用预构建镜像 `rstarall/mineru-vlm-api:latest`
+- 模型已打包在镜像中，无需额外下载
+- 优化的资源配置和健康检查
+- 自动重启策略
+- 只挂载数据和配置目录
+
+**适用场景：**
+- 生产部署
+- 稳定服务运行
+- 性能要求高的场景
+
+**启动命令：**
 ```bash
-docker run --rm -it \
-  --gpus all \
-  --shm-size 32g \
-  --ipc=host \
-  -p 8000:8000 \
-  -v $(pwd)/output:/app/output \
-  mineru-vlm-api:latest
+# 基础启动
+docker-compose -f docker-compose.prod.yml up -d
+
+# 包含 SGLang 服务器
+docker-compose -f docker-compose.prod.yml --profile sglang up -d
+
+# 停止服务
+docker-compose -f docker-compose.prod.yml down
 ```
 
-### 方式二：Docker Compose（便于管理）
+### 开发环境 (docker-compose.dev.yml)
 
-1. **创建 docker-compose.yml**
-```yaml
-version: '3.8'
+**特点：**
+- 从源码构建镜像
+- 模型动态下载（首次启动）
+- 代码文件通过 volume 挂载，支持热更新
+- 包含开发工具（vim、htop、tree）
+- 交互模式支持
+- DEBUG 级别日志
 
-services:
-  mineru-vlm-api:
-    build: .
-    ports:
-      - "8000:8000"
-    volumes:
-      - ./output:/app/output
-      - ./logs:/app/logs
-    environment:
-      - MINERU_MODEL_SOURCE=local
-      - LOG_LEVEL=info
-    deploy:
-      resources:
-        reservations:
-          devices:
-            - driver: nvidia
-              count: all
-              capabilities: [gpu]
-    restart: unless-stopped
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-      start_period: 60s
-```
+**适用场景：**
+- 代码开发
+- 功能调试
+- 配置测试
 
-2. **启动服务**
+**启动命令：**
 ```bash
-docker-compose up -d
+# 基础启动
+docker-compose -f docker-compose.dev.yml up --build
+
+# 后台运行
+docker-compose -f docker-compose.dev.yml up --build -d
+
+# 重启服务（代码修改后）
+docker-compose -f docker-compose.dev.yml restart mineru-vlm-api
+
+# 进入容器
+docker-compose -f docker-compose.dev.yml exec mineru-vlm-api bash
+
+# 停止服务
+docker-compose -f docker-compose.dev.yml down
 ```
 
-### 方式三：本地安装
+## 🔨 构建生产镜像
 
-1. **安装依赖**
-```bash
-pip install -r requirements.txt
-```
+如果需要自定义构建生产镜像：
 
-2. **下载模型**
 ```bash
-mineru-models-download -s modelscope -m all
-```
+# 1. 构建镜像
+docker-compose -f docker-compose.prod.yml build
 
-3. **启动服务**
-```bash
-python app.py
+# 2. 标记镜像
+docker tag web_api_vlm_mineru-vlm-api:latest rstarall/mineru-vlm-api:latest
+
+# 3. 推送镜像（可选）
+docker push rstarall/mineru-vlm-api:latest
 ```
 
 ## 📖 API 使用说明
@@ -121,7 +181,7 @@ python app.py
 
 ### 主要接口
 
-#### 1. VLM 文档解析 `/vlm_parse`
+#### VLM 文档解析 `/vlm_parse`
 
 **POST** `/vlm_parse`
 
@@ -148,11 +208,6 @@ curl -X POST "http://localhost:8000/vlm_parse" \
   -F "backend=vlm-sglang-engine" \
   -F "return_images=true" \
   -F "save_files=true"
-
-# 使用文件路径解析
-curl -X POST "http://localhost:8000/vlm_parse" \
-  -F "file_path=/path/to/document.pdf" \
-  -F "backend=vlm-transformers"
 ```
 
 **示例请求（Python）：**
@@ -170,158 +225,93 @@ with open("document.pdf", "rb") as f:
             "save_files": True
         }
     )
-
-result = response.json()
-print(result["md_content"])
-```
-
-#### 2. 批量处理 `/batch_vlm_parse`
-
-**POST** `/batch_vlm_parse`
-
-支持一次上传多个文件进行批量处理（最多 10 个文件）。
-
-**示例请求：**
-```bash
-curl -X POST "http://localhost:8000/batch_vlm_parse" \
-  -F "files=@doc1.pdf" \
-  -F "files=@doc2.pdf" \
-  -F "backend=vlm-sglang-engine" \
-  -F "save_files=true"
-```
-
-### 响应格式
-
-**成功响应：**
-```json
-{
-  "md_content": "# 文档标题\n\n文档内容...",
-  "file_name": "document",
-  "backend": "vlm-sglang-engine",
-  "pages_processed": "0-end",
-  "images": {
-    "image1.jpg": "data:image/jpeg;base64,..."
-  },
-  "middle_json": {...},
-  "saved_path": "/app/output/document"
-}
-```
-
-**错误响应：**
-```json
-{
-  "error": "错误描述信息"
-}
+    result = response.json()
 ```
 
 ## 🔧 配置说明
 
-### 环境变量
+### mineru.json 配置文件
 
-- `MINERU_MODEL_SOURCE`: 模型来源（`local`、`huggingface`、`modelscope`）
-- `PORT`: API 服务端口（默认 8000）
-- `LOG_LEVEL`: 日志级别（`debug`、`info`、`warning`、`error`）
-
-### 配置文件 `mineru.json`
+配置文件通过 volume 挂载，支持热更新（无需重新构建镜像）：
 
 ```json
 {
+    "bucket_info": {
+        "bucket-name-1": ["ak", "sk", "endpoint"]
+    },
+    "latex-delimiter-config": {
+        "display": {
+            "left": "$$",
+            "right": "$$"
+        },
+        "inline": {
+            "left": "$",
+            "right": "$"
+        }
+    },
+    "llm-aided-config": {
+        "title_aided": {
+            "api_key": "your_api_key",
+            "base_url": "https://dashscope.aliyuncs.com/compatible-mode/v1",
+            "model": "qwen2.5-32b-instruct",
+            "enable": false
+        }
+    },
     "models-dir": {
-        "pipeline": "/opt/models/pipeline",
-        "vlm": "/opt/models/vlm"
+        "pipeline": "",
+        "vlm": ""
     },
     "config_version": "1.3.0"
 }
 ```
 
-## 📊 性能优化建议
+### 环境变量
 
-### 1. 硬件配置
-- 使用 NVIDIA RTX 4090 或更高性能的 GPU
-- 确保足够的显存（24GB+）和内存（32GB+）
-- 使用 SSD 存储以提高 I/O 性能
+| 变量 | 开发环境 | 生产环境 | 说明 |
+|------|---------|---------|------|
+| `MINERU_MODEL_SOURCE` | auto | local | 模型源配置 |
+| `LOG_LEVEL` | debug | info | 日志级别 |
+| `MINERU_DOWNLOAD_SOURCE` | modelscope | modelscope | 模型下载源 |
+| `OMP_NUM_THREADS` | - | 16 | OpenMP 线程数 |
+| `PYTORCH_CUDA_ALLOC_CONF` | - | max_split_size_mb:512 | CUDA 内存配置 |
 
-### 2. Docker 优化
+## 🔍 常见问题
+
+### 1. 开发环境代码修改不生效
+
 ```bash
-# 分配更多共享内存
---shm-size 32g
-
-# 使用 host 网络模式（如果需要）
---network host
-
-# 设置 IPC 模式
---ipc=host
+# 重启容器应用代码更改
+docker-compose -f docker-compose.dev.yml restart mineru-vlm-api
 ```
 
-### 3. 后端选择
-- **开发/测试**: 使用 `vlm-transformers`
-- **生产环境**: 使用 `vlm-sglang-engine`
-- **分布式部署**: 使用 `vlm-sglang-client`
+### 2. 模型下载失败
 
-## 🔍 监控和日志
-
-### 健康检查
 ```bash
-curl http://localhost:8000/health
+# 检查网络连接和模型源配置
+docker-compose -f docker-compose.dev.yml logs mineru-vlm-api
 ```
 
-### 查看日志
-```bash
-# Docker 日志
-docker logs <container_id>
+### 3. GPU 不可用
 
-# Docker Compose 日志
-docker-compose logs -f mineru-vlm-api
+```bash
+# 检查 NVIDIA Container Toolkit
+docker run --rm --gpus all nvidia/cuda:12.4-base-ubuntu22.04 nvidia-smi
 ```
 
-### 性能监控
-```bash
-# GPU 使用情况
-nvidia-smi
+### 4. 镜像构建太慢
 
-# 容器资源使用
-docker stats
+开发环境不包含模型，构建更快：
+```bash
+# 开发环境构建
+docker-compose -f docker-compose.dev.yml build
 ```
 
-## 🚨 故障排除
+## 📞 支持
 
-### 常见问题
-
-1. **GPU 内存不足**
-   - 减少并发请求数量
-   - 使用更小的 batch size
-   - 确保没有其他程序占用 GPU
-
-2. **模型下载失败**
-   - 检查网络连接
-   - 尝试使用不同的模型源（ModelScope/HuggingFace）
-   - 手动下载模型文件
-
-3. **API 响应缓慢**
-   - 检查 GPU 利用率
-   - 优化输入文件大小
-   - 考虑使用 sglang-engine 后端
-
-### 日志级别设置
-```bash
-# 启动时设置详细日志
-docker run -e LOG_LEVEL=debug mineru-vlm-api:latest
-```
-
-## 🤝 贡献指南
-
-1. Fork 项目
-2. 创建特性分支 (`git checkout -b feature/AmazingFeature`)
-3. 提交更改 (`git commit -m 'Add some AmazingFeature'`)
-4. 推送到分支 (`git push origin feature/AmazingFeature`)
-5. 开启 Pull Request
+- 详细部署指南：[DEPLOYMENT.md](./DEPLOYMENT.md)
+- API 测试脚本：`python test_api.py`
+- 项目仓库：[GitHub](https://github.com/opendatalab/MinerU)
 
 ## 📄 许可证
 
-本项目基于 Apache 2.0 许可证 - 查看 [LICENSE](../../LICENSE.md) 文件了解详情。
-
-## 🙏 致谢
-
-- [MinerU](https://github.com/opendatalab/MinerU) - 核心 PDF 解析库
-- [SGLang](https://github.com/sgl-project/sglang) - 高性能 LLM 推理框架
-- [FastAPI](https://fastapi.tiangolo.com/) - 现代 Web API 框架 
+本项目遵循 [MIT License](../../LICENSE.md)。 
