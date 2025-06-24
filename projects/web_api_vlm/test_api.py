@@ -200,7 +200,7 @@ def get_input_files():
 
 def main():
     # 固定配置
-    base_url = "http://localhost:8000"
+    base_url = "http://117.50.252.245:8000/"
     backend = "vlm-transformers"
     
     print(f"🚀 正在测试 MinerU VLM Web API")

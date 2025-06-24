@@ -5,22 +5,14 @@ version: '3.8'
 # - 生产环境: docker-compose -f docker-compose.prod.yml up -d
 # - 开发环境: docker-compose -f docker-compose.dev.yml up --build
 
+# 默认配置 - 使用内置SGLang引擎
 services:
   mineru-vlm-api:
-    # 默认使用生产环境镜像
     image: rstarall/mineru-vlm-api:latest
-    # 如需从源码构建，取消注释下面的 build 配置并注释上面的 image 行
-    # build:
-    #   context: .
-    #   dockerfile: Dockerfile.prod
-    #   args:
-    #     PIP_INDEX_URL: https://pypi.tuna.tsinghua.edu.cn/simple
-    #     PIP_TRUSTED_HOST: pypi.tuna.tsinghua.edu.cn
     container_name: mineru-vlm-api
     ports:
       - "8000:8000"
     volumes:
-      # 生产环境基础挂载
       - ./output:/app/output
       - ./logs:/app/logs
       - ./temp:/app/temp
@@ -31,6 +23,11 @@ services:
       - LOG_LEVEL=info
       - PORT=8000
       - HOST=0.0.0.0
+      # 内置SGLang引擎配置
+      - PYTORCH_CUDA_ALLOC_CONF=max_split_size_mb:512
+      - OMP_NUM_THREADS=16
+      - SGLANG_ENABLE_TP=true
+      - SGLANG_MEM_FRACTION=0.85
     deploy:
       resources:
         reservations:
@@ -47,40 +44,8 @@ services:
       start_period: 120s
     networks:
       - mineru-network
-
-  # SGLang 服务器 (可选)
-  sglang-server:
-    image: lmsysorg/sglang:v0.4.7-cu124
-    container_name: sglang-server
-    ports:
-      - "30000:30000"
-    environment:
-      - CUDA_VISIBLE_DEVICES=0
-      - MODEL_PATH=opendatalab/MinerU2.0-2505-0.9B
-    command: >
-      python -m sglang.launch_server
-      --model-path ${MODEL_PATH:-opendatalab/MinerU2.0-2505-0.9B}
-      --host 0.0.0.0
-      --port 30000
-      --tp-size 1
-    deploy:
-      resources:
-        reservations:
-          devices:
-            - driver: nvidia
-              count: 1
-              capabilities: [gpu]
-    restart: unless-stopped
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:30000/health"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-      start_period: 60s
-    networks:
-      - mineru-network
-    profiles:
-      - sglang
+    shm_size: 32g
+    ipc: host
 
 networks:
   mineru-network:
@@ -88,6 +53,5 @@ networks:
 
 # 使用说明:
 # 1. 默认启动: docker-compose up -d
-# 2. 包含 SGLang: docker-compose --profile sglang up -d
-# 3. 生产环境(推荐): docker-compose -f docker-compose.prod.yml up -d
-# 4. 开发环境(推荐): docker-compose -f docker-compose.dev.yml up --build 
+# 2. 生产环境: docker-compose -f docker-compose.prod.yml up -d
+# 3. 开发环境: docker-compose -f docker-compose.dev.yml up --build 

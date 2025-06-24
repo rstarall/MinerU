@@ -26,9 +26,17 @@ services:
       - LOG_LEVEL=info
       - PORT=8000
       - HOST=0.0.0.0
-      # 生产环境优化
-      - OMP_NUM_THREADS=16
-      - PYTORCH_CUDA_ALLOC_CONF=max_split_size_mb:512
+      # 生产环境SGLang引擎优化
+      - OMP_NUM_THREADS=32
+      - MKL_NUM_THREADS=32
+      - PYTORCH_CUDA_ALLOC_CONF=max_split_size_mb:1024
+      - CUDA_LAUNCH_BLOCKING=0
+      - TOKENIZERS_PARALLELISM=false
+      # SGLang引擎生产配置
+      - SGLANG_ENABLE_TP=true
+      - SGLANG_MEM_FRACTION=0.9
+      - SGLANG_ENABLE_MIXED_PRECISION=true
+      - SGLANG_ENABLE_FLASHINFER=true
     deploy:
       resources:
         limits:
@@ -50,6 +58,9 @@ services:
       start_period: 120s
     networks:
       - mineru-network
+    # 生产环境优化
+    shm_size: 64g
+    ipc: host
 
   # SGLang 服务器 (可选，用于 sglang-client 后端)
   sglang-server:
