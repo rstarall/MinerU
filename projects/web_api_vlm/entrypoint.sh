@@ -19,24 +19,18 @@ else
     echo "⚠ Configuration file not found, using default settings"
 fi
 
-# Check if models are available (for local model source)
-if [ "${MINERU_MODEL_SOURCE:-}" = "local" ]; then
-    echo "Checking local models..."
-    python3 -c "
-try:
-    from mineru.utils.config_reader import get_local_models_dir
-    models_config = get_local_models_dir()
-    if models_config:
-        print('✓ Local models configuration found')
-        if 'vlm' in models_config:
-            print(f'✓ VLM models path: {models_config[\"vlm\"]}')
-        if 'pipeline' in models_config:
-            print(f'✓ Pipeline models path: {models_config[\"pipeline\"]}')
-    else:
-        print('⚠ No local models configuration found')
-except Exception as e:
-    print(f'⚠ Error checking models: {e}')
-"
+# Download models if not using local source
+if [ "${MINERU_MODEL_SOURCE:-}" != "local" ]; then
+    echo "Checking for existing models..."
+    if [ -d "/root/.cache" ] && [ "$(ls -A /root/.cache 2>/dev/null)" ]; then
+        echo "✓ Models already exist, skipping download"
+    else
+        echo "🔄 Downloading models..."
+        python3 -c "import os; os.system('mineru-models-download -s modelscope -m all')"
+        echo "✅ Model download completed"
+    fi
+else
+    echo "Using local model source, skipping download..."
 fi
 
 echo "==========================================="
@@ -46,4 +40,4 @@ echo "API Documentation: http://localhost:8000/docs"
 echo "==========================================="
 
 # Start the FastAPI application
-exec uvicorn app:app "$@" 
+exec uvicorn app:app "$@"

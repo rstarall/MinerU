@@ -51,3 +51,5 @@ _build/
 
 
 output/
+
+projects/web_api_vlm/models_cache

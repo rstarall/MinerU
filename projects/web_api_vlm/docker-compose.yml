@@ -1,10 +1,14 @@
 version: '3.8'
 
+# 默认 docker-compose.yml - 兼容性配置
+# 推荐使用明确的环境配置：
+# - 生产环境: docker-compose -f docker-compose.prod.yml up -d
+# - 开发环境: docker-compose -f docker-compose.dev.yml up --build
+
+# 默认配置 - 使用内置SGLang引擎
 services:
   mineru-vlm-api:
-    build:
-      context: .
-      dockerfile: Dockerfile
+    image: rstarall/mineru-vlm-api:latest
     container_name: mineru-vlm-api
     ports:
       - "8000:8000"
@@ -12,11 +16,18 @@ services:
       - ./output:/app/output
       - ./logs:/app/logs
       - ./temp:/app/temp
+      - ./models_cache:/root/.cache
+      - ./mineru.json:/root/mineru.json:ro
     environment:
-      - MINERU_MODEL_SOURCE=local
+      - MINERU_MODEL_SOURCE=modelscope
       - LOG_LEVEL=info
       - PORT=8000
       - HOST=0.0.0.0
+      # 内置SGLang引擎配置
+      - PYTORCH_CUDA_ALLOC_CONF=max_split_size_mb:512
+      - OMP_NUM_THREADS=16
+      - SGLANG_ENABLE_TP=true
+      - SGLANG_MEM_FRACTION=0.85
     deploy:
       resources:
         reservations:
@@ -33,45 +44,14 @@ services:
       start_period: 120s
     networks:
       - mineru-network
-
-  # Optional: SGLang server for vlm-sglang-client backend
-  sglang-server:
-    image: lmsysorg/sglang:v0.4.7-cu124
-    container_name: sglang-server
-    ports:
-      - "30000:30000"
-    environment:
-      - CUDA_VISIBLE_DEVICES=0
-    command: >
-      python -m sglang.launch_server
-      --model-path opendatalab/MinerU2.0-2505-0.9B
-      --host 0.0.0.0
-      --port 30000
-      --tp-size 1
-    deploy:
-      resources:
-        reservations:
-          devices:
-            - driver: nvidia
-              count: 1
-              capabilities: [gpu]
-    restart: unless-stopped
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:30000/health"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-      start_period: 60s
-    networks:
-      - mineru-network
-    profiles:
-      - sglang  # Use with: docker-compose --profile sglang up
+    shm_size: 32g
+    ipc: host
 
 networks:
   mineru-network:
     driver: bridge
 
-volumes:
-  output:
-  logs:
-  temp: 
+# 使用说明:
+# 1. 默认启动: docker-compose up -d
+# 2. 生产环境: docker-compose -f docker-compose.prod.yml up -d
+# 3. 开发环境: docker-compose -f docker-compose.dev.yml up --build 

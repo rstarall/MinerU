@@ -1,0 +1,85 @@
+version: '3.8'
+
+services:
+  mineru-vlm-api:
+    # 开发环境从源码构建
+    build:
+      context: .
+      dockerfile: Dockerfile.dev
+      args:
+        PIP_INDEX_URL: https://pypi.tuna.tsinghua.edu.cn/simple
+        PIP_TRUSTED_HOST: pypi.tuna.tsinghua.edu.cn
+    container_name: mineru-vlm-api-dev
+    ports:
+      - "8000:8000"
+    volumes:
+      # 开发环境支持代码热更新
+      - ./app.py:/app/app.py:ro
+      - ./ocr.py:/app/ocr.py:ro
+      - ./entrypoint.sh:/app/entrypoint.sh:ro
+      - ./mineru.json:/root/mineru.json:ro
+      # 数据目录
+      - ./output:/app/output
+      - ./logs:/app/logs
+      - ./temp:/app/temp
+      - ./models_cache:/root/.cache
+    environment:
+      - MINERU_MODEL_SOURCE=modelscope
+      - LOG_LEVEL=debug
+      - PORT=8000
+      - HOST=0.0.0.0
+      # 开发环境配置
+      - PYTHONPATH=/app
+      - FLASK_ENV=development
+      # SGLang关键配置
+      - TRANSFORMERS_TRUST_REMOTE_CODE=true
+      - HF_HUB_DISABLE_TELEMETRY=1
+      - SGLANG_TRUST_REMOTE_CODE=true
+      # 内存优化
+      - PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True,max_split_size_mb:1024,garbage_collection_threshold:0.8
+      - OMP_NUM_THREADS=8
+      - MKL_NUM_THREADS=8
+      - CUDA_LAUNCH_BLOCKING=0
+      - TOKENIZERS_PARALLELISM=false
+      - CUDA_VISIBLE_DEVICES=0
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 60s
+      timeout: 15s
+      retries: 5
+      start_period: 180s
+    networks:
+      - mineru-network
+    # 开发环境交互模式
+    stdin_open: true
+    tty: true
+    # 优化内存和IPC设置
+    shm_size: 32g
+    ipc: host
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "100m"
+        max-file: "3"
+
+networks:
+  mineru-network:
+    driver: bridge
+
+# 开发环境使用说明:
+# 0. 清理容器: docker-compose -f docker-compose.dev.yml down
+# 1. 启动开发服务: docker-compose -f docker-compose.dev.yml up --build
+# 2. 后台运行: docker-compose -f docker-compose.dev.yml up --build -d
+# 3. 查看日志: docker-compose -f docker-compose.dev.yml logs -f mineru-vlm-api
+# 4. 重启服务: docker-compose -f docker-compose.dev.yml restart mineru-vlm-api
+# 5. 停止服务: docker-compose -f docker-compose.dev.yml down
+# 6. 进入容器: docker-compose -f docker-compose.dev.yml exec mineru-vlm-api bash 
+# 7. 重新构建容器(使用已有的镜像): docker-compose -f docker-compose.dev.yml up -d

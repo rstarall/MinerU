@@ -1,4 +1,4 @@
-# Development Dockerfile for MinerU VLM Web API
+# Production Dockerfile for MinerU VLM Web API
 FROM lmsysorg/sglang:v0.4.7-cu124
 
 # 接收构建参数
@@ -17,7 +17,7 @@ ENV DEBIAN_FRONTEND=noninteractive \
 
 WORKDIR /app
 
-# 安装系统依赖 (包含开发工具)
+# 安装系统依赖
 RUN apt-get update && \
     apt-get install -y --no-install-recommends \
         build-essential \
@@ -27,10 +27,7 @@ RUN apt-get update && \
         git \
         wget \
         curl \
-        python3-venv \
-        vim \
-        htop \
-        tree && \
+        python3-venv && \
     apt-get clean && \
     rm -rf /var/lib/apt/lists/*
 
@@ -45,12 +42,19 @@ RUN pip install --no-cache-dir --upgrade pip setuptools wheel
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-# 开发环境使用自动下载模式，不在镜像中包含模型
-ENV MINERU_MODEL_SOURCE=auto
+# 下载模型 (生产环境包含在镜像中)
+RUN python -c "import os; os.system('mineru-models-download -s modelscope -m all'); print('Models downloaded successfully')"
 
-# 复制模型下载脚本和启动脚本
+# 设置模型源为本地
+ENV MINERU_MODEL_SOURCE=local
+
+# 复制应用文件
+COPY app.py /app/app.py
 COPY model_download.py /app/model_download.py
 COPY entrypoint.sh /app/entrypoint.sh
+COPY mineru.json /root/mineru.json
+
+# 设置执行权限
 RUN chmod +x /app/entrypoint.sh
 
 # 创建必要目录
@@ -59,8 +63,8 @@ RUN mkdir -p /app/output /app/logs /app/temp
 # 暴露端口
 EXPOSE 8000
 
-# 开发环境的健康检查更宽松
-HEALTHCHECK --interval=60s --timeout=15s --start-period=180s --retries=5 \
+# 健康检查
+HEALTHCHECK --interval=30s --timeout=10s --start-period=120s --retries=3 \
     CMD curl -f http://localhost:8000/health || exit 1
 
 # 设置入口点
