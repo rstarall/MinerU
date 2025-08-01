@@ -48,9 +48,9 @@ RUN pip install --no-cache-dir -r requirements.txt
 # 开发环境使用自动下载模式，不在镜像中包含模型
 ENV MINERU_MODEL_SOURCE=auto
 
-# 复制模型下载脚本和启动脚本
-COPY model_download.py /app/model_download.py
-COPY entrypoint.sh /app/entrypoint.sh
+# 复制模型下载脚本和启动脚本，其他文件通过 volume 挂载
+COPY app/model_download.py /app/model_download.py
+COPY app/entrypoint.sh /app/entrypoint.sh
 RUN chmod +x /app/entrypoint.sh
 
 # 创建必要目录
@@ -65,4 +65,4 @@ HEALTHCHECK --interval=60s --timeout=15s --start-period=180s --retries=5 \
 
 # 设置入口点
 ENTRYPOINT ["/app/entrypoint.sh"]
-CMD ["--host", "0.0.0.0", "--port", "8000"] 
+CMD ["--host", "0.0.0.0", "--port", "8000"]

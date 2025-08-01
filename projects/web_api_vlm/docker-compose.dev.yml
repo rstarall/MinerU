@@ -13,11 +13,14 @@ services:
     ports:
       - "8000:8000"
     volumes:
-      # 开发环境支持代码热更新
-      - ./app.py:/app/app.py:ro
-      - ./ocr.py:/app/ocr.py:ro
-      - ./entrypoint.sh:/app/entrypoint.sh:ro
-      - ./mineru.json:/root/mineru.json:ro
+      # 开发环境支持代码热更新 - 精确挂载源文件
+      - ./app/app.py:/app/app.py:rw
+      - ./app/ocr.py:/app/ocr.py:rw
+      - ./app/process.py:/app/process.py:rw
+      - ./app/sglang_manager.py:/app/sglang_manager.py:rw
+      - ./app/model_download.py:/app/model_download.py:rw
+      - ./app/entrypoint.sh:/app/entrypoint.sh:ro
+      - ./app/mineru.json:/root/mineru.json:ro
       # 数据目录
       - ./output:/app/output
       - ./logs:/app/logs
